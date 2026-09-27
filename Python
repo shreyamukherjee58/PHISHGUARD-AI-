@@ -1,0 +1,76 @@
+import os
+import sys
+import time
+from google import genai
+from google.genai.errors import APIError
+
+def main():
+    # 1. Fetch API key from environment
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("Error: GEMINI_API_KEY environment variable is not set.", file=sys.stderr)
+        print("Set it using: export GEMINI_API_KEY='AQ.Ab8RN6IJ5sLwgiuvO-eemgVCrItzv0WF9h3Lnfc5SijwxQ21jw'", file=sys.stderr)
+        sys.exit(1)
+
+    # 2. Pass the 'api_key' variable
+    client = genai.Client(api_key=api_key)
+
+    # 3. Configure available tools
+    tools = [
+        {"type": "code_execution"},
+        {"type": "google_search"},
+        {"type": "url_context"},
+    ]
+
+    # 4. Dispatch the background agent interaction
+    print("Initiating agent interaction...")
+    try:
+        interaction = client.interactions.create(
+            agent="antigravity-preview-09-2026",
+            input="Urgent: Your bank account has been locked. Click here to verify your details immediately: http://fake-bank-login.com",
+            background=True,
+            tools=tools,
+            environment="0248bffb5f11eb1667cccc9d9b120b79",
+        )
+    except APIError as e:
+        print(f"Failed to create interaction: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Research started! Interaction ID: {interaction.id}")
+
+    # 5. Poll for completion
+    max_retries = 60
+    poll_interval_seconds = 10
+
+    for attempt in range(1, max_retries + 1):
+        time.sleep(poll_interval_seconds)
+
+        try:
+            interaction = client.interactions.get(interaction.id)
+            status = getattr(interaction, "status", None)
+
+            if status == "completed":
+                print("\n" + "=" * 60)
+                print("Agent Output:")
+                print("=" * 60)
+                print(interaction.output_text)
+                return
+
+            elif status in ("failed", "cancelled"):
+                error_msg = getattr(interaction, "error", "No error details available.")
+                print(f"\nInteraction ended with status '{status}': {error_msg}", file=sys.stderr)
+                sys.exit(1)
+
+            else:
+                print(f"[{attempt}/{max_retries}] Status: {status}...")
+
+        except APIError as e:
+            print(f"Transient API error while polling (attempt {attempt}/{max_retries}): {e}")
+            continue
+
+    print("\nError: Interaction timed out before reaching a terminal status.", file=sys.stderr)
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
